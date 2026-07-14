@@ -1,133 +1,19 @@
-const $ = (selector, root = document) => root.querySelector(selector);
-const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
-if (!$('#interactionStyles')) { const interactionStyles = document.createElement('link'); interactionStyles.id = 'interactionStyles'; interactionStyles.rel = 'stylesheet'; interactionStyles.href = 'interactions.css'; document.head.append(interactionStyles); }
-const storeKey = 'zhitu-prototype-data';
-const initialData = { submissions: [], clues: [], theme: 'study' };
-const data = { ...initialData, ...JSON.parse(localStorage.getItem(storeKey) || '{}') };
-const save = () => localStorage.setItem(storeKey, JSON.stringify(data));
-
-function toast(message, action) {
-  let node = $('#toast');
-  if (!node) {
-    node = document.createElement('div'); node.id = 'toast'; node.className = 'toast'; document.body.append(node);
-  }
-  node.innerHTML = `<span>${message}</span>${action ? `<button>${action.label}</button>` : ''}`;
-  node.classList.add('show');
-  if (action) $('button', node).onclick = action.onClick;
-  clearTimeout(toast.timer); toast.timer = setTimeout(() => node.classList.remove('show'), 4200);
-}
-
-function createDialog(id, title, hint, fields, submitText) {
-  const dialog = document.createElement('dialog'); dialog.id = id;
-  dialog.innerHTML = `<button class="close-dialog" aria-label="关闭">×</button><p class="eyebrow"><span></span> ZHITU / 互动原型</p><h2>${title}</h2><p class="dialog-intro">${hint}</p>${fields.map((f) => `<label>${f.label}${f.type === 'textarea' ? `<textarea name="${f.name}" placeholder="${f.placeholder}"></textarea>` : `<input name="${f.name}" placeholder="${f.placeholder}" />`}</label>`).join('')}<button class="primary-btn" data-submit>${submitText} <b>↗</b></button>`;
-  document.body.append(dialog);
-  $('.close-dialog', dialog).onclick = () => dialog.close();
-  return dialog;
-}
-
-const themeNames = { study: '研究室', night: '深夜图书馆', workshop: '创作工坊' };
-function setTheme(theme) {
-  data.theme = theme; save(); document.body.dataset.theme = theme;
-  const trigger = $('#themeTrigger'); if (trigger) trigger.innerHTML = `<span class="theme-dot"></span>${themeNames[theme]}`;
-}
-setTheme(data.theme);
-$('#themeTrigger')?.addEventListener('click', (event) => { event.stopPropagation(); $('#themeMenu').hidden = !$('#themeMenu').hidden; });
-$('#themeMenu')?.addEventListener('click', (event) => { const button = event.target.closest('button[data-theme]'); if (button) { setTheme(button.dataset.theme); $('#themeMenu').hidden = true; } });
-document.addEventListener('click', (event) => { if (!$('#themeMenu')?.contains(event.target) && !$('#themeTrigger')?.contains(event.target)) $('#themeMenu').hidden = true; });
-
-const askDialog = $('#askDialog');
-function submitQuestion(type) {
-  const dialog = type === 'stuck' ? $('#stuckDialog') : askDialog;
-  const title = $('input', dialog)?.value.trim(); const help = $('textarea', dialog)?.value.trim();
-  if (!title || !help) return toast('还差一点：请写下你的卡点和需要的帮助。');
-  const submission = { id: Date.now(), title, help, type, status: 'pending', created: new Date().toLocaleDateString('zh-CN') };
-  data.submissions.unshift(submission); save(); dialog.close(); renderAll();
-  toast('已投递给编辑部，先进入核验队列。', { label: '查看审核进度', onClick: openReviewDrawer });
-}
-$('#askButton')?.addEventListener('click', () => askDialog.showModal());
-$('#submitQuestion')?.addEventListener('click', () => submitQuestion('question'));
-$('#stuckButton')?.addEventListener('click', () => $('#stuckDialog').showModal());
-$('#submitStuck')?.addEventListener('click', () => submitQuestion('stuck'));
-$$('.close-dialog').forEach((button) => button.addEventListener('click', () => button.closest('dialog').close()));
-
-function boardCard(item) {
-  return `<article class="queued-card ${item.status}"><div><span>${item.type === 'stuck' ? '卡关档案' : '悬赏问题'} · ${item.created}</span><b>${item.status === 'approved' ? '已精选' : '审核中'}</b></div><h3>${item.title}</h3><p>${item.help}</p><button data-open-submission="${item.id}">${item.status === 'approved' ? '进入破局现场 →' : '查看审核状态 →'}</button></article>`;
-}
-function renderAll() {
-  const list = $('#submissionList');
-  if (list) list.innerHTML = data.submissions.map(boardCard).join('');
-  const approved = data.submissions.filter((item) => item.status === 'approved' && item.type === 'stuck');
-  const board = $('.case-board');
-  board?.querySelectorAll('.user-case-card').forEach((node) => node.remove());
-  approved.slice(0, 2).forEach((item, index) => {
-    const card = document.createElement('button'); card.className = `user-case-card position-${index}`; card.dataset.openSubmission = item.id;
-    card.innerHTML = `<span>新收录 / ${item.created}</span><h3>${item.title}</h3><p>${item.help}</p><b>查看线索 →</b>`; board.append(card);
-  });
-}
-document.addEventListener('click', (event) => {
-  const target = event.target.closest('[data-open-submission]'); if (!target) return;
-  const item = data.submissions.find((entry) => entry.id === Number(target.dataset.openSubmission));
-  if (!item) return;
-  localStorage.setItem('zhitu-active-case', JSON.stringify(item)); window.location.href = 'case.html?case=custom';
-});
-
-function openReviewDrawer() {
-  let drawer = $('#reviewDrawer');
-  if (!drawer) {
-    drawer = document.createElement('aside'); drawer.id = 'reviewDrawer'; drawer.className = 'review-drawer'; document.body.append(drawer);
-    drawer.addEventListener('click', (event) => {
-      if (event.target.matches('[data-approve]')) { const item = data.submissions.find((entry) => entry.id === Number(event.target.dataset.approve)); item.status = 'approved'; save(); renderAll(); openReviewDrawer(); toast('核验完成，卡点已进入卡关现场。'); }
-      if (event.target.matches('[data-close-drawer]')) drawer.classList.remove('open');
-    });
-  }
-  drawer.innerHTML = `<header><span>编辑部 / 核验队列</span><button data-close-drawer>×</button></header><p>这是原型中的审核工作台。通过后，卡点才会进入公开的卡关现场。</p><div class="review-list">${data.submissions.length ? data.submissions.map((item) => `<article><small>${item.type === 'stuck' ? '卡关投稿' : '求解问题'} · ${item.created}</small><h3>${item.title}</h3><p>${item.help}</p>${item.status === 'pending' ? `<button data-approve="${item.id}">核验通过并精选</button>` : '<b>✓ 已进入公开现场</b>'}</article>`).join('') : '<div class="empty-state">暂时没有待核验投稿。<br />发布一个问题或卡点试试。</div>'}</div>`;
-  drawer.classList.add('open');
-}
-$('.avatar')?.addEventListener('click', openReviewDrawer);
-
-$$('.subject-tabs button').forEach((tab) => tab.addEventListener('click', () => {
-  $$('.subject-tabs button').forEach((button) => button.classList.toggle('selected', button === tab));
-  const label = tab.textContent.trim();
-  $$('.question-card').forEach((card) => { card.hidden = label !== '全部' && !card.textContent.includes(label); });
-}));
-
-$('.folder-stack')?.addEventListener('click', () => {
-  $('.folder-stack').classList.toggle('expanded');
-  toast($('.folder-stack').classList.contains('expanded') ? '资料包已展开：每条结论都可以回到来源。' : '已收起资料包。');
-});
-const discussionDialog = createDialog('discussionDialog', '加入一场精选讨论', '留下可被追问的观点、证据或方法。水贴不会进入公开讨论区。', [{ label: '你的回应', name: 'reply', type: 'textarea', placeholder: '写下你的判断、经验或资料依据。' }], '提交给编辑部');
-$$('.forum-list article').forEach((topic) => topic.addEventListener('click', () => { $('#discussionDialog h2').textContent = `讨论：${$('h3', topic).textContent}`; discussionDialog.showModal(); }));
-$('[data-submit]', discussionDialog).addEventListener('click', () => { if (!$('[name="reply"]', discussionDialog).value.trim()) return toast('请先写下你的观点或依据。'); discussionDialog.close(); toast('回应已提交，编辑部会在核验后展示。'); });
-
-function setupCasePage() {
-  const custom = JSON.parse(localStorage.getItem('zhitu-active-case') || 'null');
-  if (custom && $('.case-page')) {
-    $('.case-hero-detail h1').innerHTML = `${custom.title}<br /><i>正在等待第一条破局线索。</i>`;
-    $('.detail-lead').textContent = custom.help;
-    $('.case-story').innerHTML = `<section><p class="story-label">01 / 我卡在哪里</p><p>${custom.help}</p></section><section><p class="story-label">02 / 编辑部提示</p><p>这个卡点已通过基础核验。请提供具体方法、可靠资料或可执行的下一步，避免空泛安慰。</p></section>`;
-  }
-  const clueDialog = createDialog('clueDialog', '留下一条破局线索', '好的线索应当能让提问者立刻知道下一步怎么走。', [{ label: '你的线索标题', name: 'title', placeholder: '例如：先把问题缩成可检验的一条路径' }, { label: '具体建议或资料依据', name: 'body', type: 'textarea', placeholder: '写下方法、步骤、资料出处或你的判断依据。' }], '提交线索');
-  $('.add-clue')?.addEventListener('click', () => clueDialog.showModal());
-  $('[data-submit]', clueDialog).addEventListener('click', () => {
-    const title = $('[name="title"]', clueDialog).value.trim(); const body = $('[name="body"]', clueDialog).value.trim();
-    if (!title || !body) return toast('请补全线索标题与具体建议。');
-    data.clues.unshift({ id: Date.now(), title, body, liked: false, accepted: false }); save(); clueDialog.close(); renderClues(); toast('线索已提交，感谢你让一个卡点变得可前进。');
-  });
-  renderClues();
-}
-function renderClues() {
-  const panel = $('.clue-panel'); if (!panel) return;
-  panel.querySelectorAll('.user-clue').forEach((node) => node.remove());
-  data.clues.forEach((clue) => {
-    const item = document.createElement('article'); item.className = 'clue user-clue'; item.innerHTML = `<p>社区线索 · 刚刚提交</p><h3>${clue.title}</h3><p>${clue.body}</p><div><button data-like="${clue.id}">${clue.liked ? '♥ 已认可' : '♡ 认可线索'}</button><button data-accept="${clue.id}">${clue.accepted ? '✓ 已采纳' : '采纳线索'}</button></div>`;
-    $('.add-clue', panel).before(item);
-  });
-  $('.clue-title b').textContent = 18 + data.clues.length;
-}
-document.addEventListener('click', (event) => {
-  const like = event.target.closest('[data-like]'); const accept = event.target.closest('[data-accept]');
-  if (like) { const clue = data.clues.find((item) => item.id === Number(like.dataset.like)); clue.liked = !clue.liked; save(); renderClues(); }
-  if (accept) { const clue = data.clues.find((item) => item.id === Number(accept.dataset.accept)); clue.accepted = true; save(); renderClues(); toast('已采纳。这条线索会进入该问题的破局路径。'); }
-});
-
-renderAll(); setupCasePage();
+const $=(s,p=document)=>p.querySelector(s),$$=(s,p=document)=>[...p.querySelectorAll(s)];
+const cases=[{id:1,s:'社科 / 毕业论文',t:'导师说我的选题太大，但我已经改了五次。',d:'“数字媒介如何影响大学生睡眠”到底大在哪里？我需要一条可以落地的研究路径。',c:18},{id:2,s:'工学 / 项目协作',t:'组员说不会 Python，但答辩只剩三天。',d:'我需要的是救火脚本，还是一个真正可展示的简化方案？',c:9},{id:3,s:'文学 / 文献阅读',t:'读了二十篇论文，感觉自己只会复制粘贴。',d:'怎样从阅读量走到可以写进综述的观点？',c:23},{id:4,s:'设计 / 毕业设计',t:'地方元素如何不变成符号堆砌？',d:'想要一个能够说服导师的本土化视觉研究框架。',c:12}];
+const topics=['定量研究中，“显著”之外还应该报告什么？','怎样建立自己的文献阅读与批注系统？','跨学科合作，怎样避免变成互相等待？'];
+const data=JSON.parse(localStorage.getItem('zhitu-glass')||'{}');const save=()=>localStorage.setItem('zhitu-glass',JSON.stringify(data));
+function toast(t){const n=$('#toast');n.textContent=t;n.classList.add('show');clearTimeout(n.timer);n.timer=setTimeout(()=>n.classList.remove('show'),2800)}
+function renderCards(filter='全部'){const list=$('#cards');list.innerHTML='';cases.filter(x=>filter==='全部'||x.s.includes(filter)).forEach((x,i)=>{const el=document.createElement('button');el.className='case glass';el.dataset.id=x.id;el.innerHTML=`<div class="meta"><span>档案 #0${14-i}</span><span>正在破局</span></div><span class="subject">${x.s}</span><h3>${x.t}</h3><p>${x.d}</p><footer><span>◉ ${x.c} 条线索</span><b>打开 →</b></footer>`;list.append(el)})}
+function renderTopics(){const node=$('#topics');topics.forEach((t,i)=>{const x=document.createElement('button');x.className='topic glass';x.innerHTML=`<span>TOPIC / 0${i+1}</span><h3>${t}</h3><p>${18+i*11} 人正在参与 · 点击加入讨论</p>`;x.onclick=()=>toast('已加入讨论等候名单，编辑部会核验你的回应。');node.append(x)})}
+function openCase(id){const item=cases.find(x=>x.id===+id);if(!item)return;$('#detailTag').textContent=item.s+' / 精选档案';$('#detailTitle').textContent=item.t;$('#detailBody').textContent=item.d;$('#detailSubject').textContent=item.s;$('#clueCount').textContent=item.c;$('#clueList').innerHTML=`<article class="clue"><span>编辑精选 / 方法线索</span><h4>先把问题缩成一条可检验的路径</h4><p>不要先问“是否影响”，先定义自变量、机制和一个可承受的样本范围。</p><button>♡ 认可这条线索</button></article><article class="clue"><span>资料线索 / 已核验</span><h4>两篇综述与三个可用量表</h4><p>已标注变量定义、引用页码和适用情境。</p><button>查看资料包 →</button></article>`;$('#sheet').classList.add('open');$('#sheet').setAttribute('aria-hidden','false')}
+function close(el){el.closest('.style-panel,dialog,.sheet')?.classList.remove('open');if(el.closest('.sheet'))$('#sheet').setAttribute('aria-hidden','true');if(el.closest('dialog'))el.closest('dialog').close()}
+renderCards();renderTopics();
+$$('[data-page]').forEach(b=>b.onclick=()=>{const p=b.dataset.page;$$('.page').forEach(x=>x.classList.toggle('active',x.id===p));$$('[data-page]').forEach(x=>x.classList.toggle('active',x.dataset.page===p));window.scrollTo({top:0,behavior:'smooth'})});
+$('#cards').onclick=e=>{const c=e.target.closest('.case');if(c)openCase(c.dataset.id)};$('#openToday').onclick=()=>openCase(1);$$('[data-scroll]').forEach(b=>b.onclick=()=>$('#'+b.dataset.scroll).scrollIntoView({behavior:'smooth'}));
+$('#filterBtn').onclick=()=>toast('选择学科标签，筛选卡关现场。');$$('#chips button').forEach(b=>b.onclick=()=>{$$('#chips button').forEach(x=>x.classList.toggle('selected',x===b));renderCards(b.textContent)});
+const composer=$('#composer');const openComposer=()=>composer.showModal();$('#createBtn').onclick=openComposer;$('#heroCreate').onclick=openComposer;$('#mobileCreate').onclick=openComposer;$('#submitCase').onclick=()=>{const t=$('#caseTitle').value.trim(),d=$('#caseNeed').value.trim();if(!t||!d)return toast('请先写下卡点和需要的帮助。');cases.unshift({id:Date.now(),s:'新投稿 / 编辑核验中',t,d,c:0});composer.close();renderCards();toast('已投递。编辑部核验后会进入公开现场。')};
+$('#styleBtn').onclick=()=>$('#stylePanel').classList.add('open');$$('.close').forEach(b=>b.onclick=()=>close(b));$('#sheet .sheet-backdrop').onclick=()=>{$('#sheet').classList.remove('open');$('#sheet').setAttribute('aria-hidden','true')};
+[['opacity','--opacity','%',x=>(x/100).toFixed(2)],['blur','--blur','px',x=>x+'px'],['radius','--radius','px',x=>x+'px'],['hue','--hue','°',x=>x]].forEach(([id,v,u,f])=>{const input=$('#'+id),out=$('#'+id+'Val');const set=()=>{document.documentElement.style.setProperty(v,f(input.value));out.textContent=input.value+u;data[id]=input.value;save()};input.value=data[id]||input.value;set();input.oninput=set});
+$('#resetStyle').onclick=()=>{['opacity','blur','radius','hue'].forEach((x,i)=>{$('#'+x).value=[68,20,28,212][i];$('#'+x).oninput()});toast('已恢复默认玻璃质感。')};
+$('#writeClue').onclick=()=>{const f=$('#clueForm').content.cloneNode(true);$('#clueList').prepend(f);const form=$('.clue-form');$('.primary',form).onclick=()=>{const [a,b]=$$('input,textarea',form);if(!a.value||!b.value)return toast('请补充完整线索。');const n=document.createElement('article');n.className='clue';n.innerHTML=`<span>社区线索 / 刚刚提交</span><h4>${a.value}</h4><p>${b.value}</p><button>♡ 认可这条线索</button>`;form.replaceWith(n);toast('线索已提交，等待编辑部核验。')}};
+$('#addSource').onclick=()=>toast('已打开资料录入入口（演示模式）。');$('#profileBtn').onclick=$('#mobileProfile').onclick=()=>toast('个人中心：你已贡献 3 条被采纳的线索。');
