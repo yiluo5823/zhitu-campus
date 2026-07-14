@@ -1,0 +1,6 @@
+.tools/
+.netlify/
+node_modules/
+*.zip
+*.msi
+*.log

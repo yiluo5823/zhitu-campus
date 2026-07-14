@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>知途 · 校园学术互助</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="modules.css" />
+    <link rel="stylesheet" href="interactions.css" />
+  </head>
+  <body data-theme="study">
+    <div class="paper-noise"></div>
+    <header class="topbar">
+      <a class="brand" href="#top"><span class="brand-mark">知</span><span>知途</span><em>ZHITU</em></a>
+      <nav class="main-nav" aria-label="主导航">
+        <a class="active" href="#questions">精选问题</a>
+        <a href="#stuck">卡关现场</a>
+        <a href="#library">资料台</a>
+        <a href="#forum">讨论区</a>
+        <a href="#cases">解法库</a>
+      </nav>
+      <div class="top-actions">
+        <button class="theme-trigger" id="themeTrigger" aria-label="切换阅读环境"><span class="theme-dot"></span>研究室</button>
+        <button class="avatar" aria-label="个人中心">林</button>
+      </div>
+    </header>
+
+    <main id="top">
+      <section class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow"><span></span> 校园学术互助平台 · 第 0042 期</p>
+          <h1>让每一个认真<br /><i>提问</i>都有回响</h1>
+          <p class="intro">在这里提出值得研究的问题，遇见能一起拆解它的人。<br />每一份答案，都有依据，也经得起追问。</p>
+          <div class="hero-actions">
+            <button class="primary-btn" id="askButton">发布一个问题 <b>↗</b></button>
+            <a class="text-link" href="#questions">浏览精选 <span>↓</span></a>
+          </div>
+        </div>
+        <div class="hero-card" aria-label="今日精选问题">
+          <div class="card-topline"><span class="status-live">● 正在求解</span><span>编号 Q-2847</span></div>
+          <div class="tape">今日精选</div>
+          <p class="card-subject">社会科学 · 心理学</p>
+          <h2>短视频使用究竟如何影响大学生的睡眠质量？</h2>
+          <p class="card-summary">已有研究结论不一，想梳理变量关系并确定一套可行的问卷研究方案。</p>
+          <div class="card-bottom"><div class="mini-avatars"><span>陈</span><span>周</span><span>+6</span></div><span class="reward">悬赏 <b>120 知点</b></span></div>
+        </div>
+        <div class="hero-scribble">01<br /><small>探索<br />未知</small></div>
+      </section>
+
+      <section class="stats-strip">
+        <div><b>2,481</b><span>已解决问题</span></div>
+        <div><b>384</b><span>认证解题者</span></div>
+        <div><b>12,608</b><span>可追溯资料</span></div>
+        <p>好问题值得<br />被认真对待。<i>— 知途编辑部</i></p>
+      </section>
+
+      <section class="stuck-section" id="stuck">
+        <div class="stuck-heading"><div><p class="eyebrow"><span></span> THE STUCK DESK</p><h2>卡关现场<span>™</span></h2><p>每一个“我真的不会了”，都值得一条破局线索。</p></div><div class="stuck-note"><b>编辑部核验中</b><br />不是情绪垃圾场。只收真实卡点，<br />也只留下能帮助别人的回应。</div></div>
+        <div class="case-board">
+          <a class="case-card case-primary" href="case.html"><div class="case-top"><span>档案 #014</span><span class="case-status">正在破局</span></div><div class="pin pin-orange"></div><p class="case-label">社会科学 / 毕业论文</p><h3>导师说我的选题太大，<br />但我已经改了五次。</h3><blockquote>“数字媒介如何影响大学生的睡眠”到底大在哪里？我该从哪里下刀？</blockquote><div class="case-meta"><span>求助：研究设计</span><b>18 条线索 →</b></div></a>
+          <a class="case-card case-yellow" href="case.html"><div class="case-top"><span>档案 #011</span><span>还剩 1 天</span></div><div class="pin pin-green"></div><p class="case-label">工学 / 项目协作</p><h3>组员说不会 Python，<br />但答辩在三天后。</h3><p class="case-question">我需要的是救火脚本，还是一个可展示的简化方案？</p><div class="case-meta"><span>求助：项目拆解</span><b>9 条线索 →</b></div></a>
+          <a class="case-card case-blue" href="case.html"><div class="case-top"><span>档案 #008</span><span>已补充资料</span></div><div class="paperclip">⌇</div><p class="case-label">文学 / 文献阅读</p><h3>读了 20 篇论文，<br />感觉自己只会复制粘贴。</h3><p class="case-question">怎样从“阅读量”走到真正可以写进综述的观点？</p><div class="case-meta"><span>求助：文献整理</span><b>23 条线索 →</b></div></a>
+          <div class="case-stamp">NO<br /><b>WATER</b><br />ONLY<br />CLUES</div>
+        </div>
+        <div class="stuck-actions"><button class="primary-btn" id="stuckButton">投递我的卡点 <b>↗</b></button><a class="text-link" href="case.html">查看破局过程 <span>→</span></a></div>
+      </section>
+
+      <section class="content-section questions" id="questions">
+        <div class="section-heading"><div><p class="eyebrow"><span></span> QUESTION BOARD</p><h2>正在等待解答的问题</h2></div><button class="filter-btn">全部学科 <span>⌄</span></button></div>
+        <div class="subject-tabs"><button class="selected">全部</button><button>理学</button><button>工学</button><button>文学</button><button>社会科学</button><button>艺术与设计</button></div>
+        <div class="question-grid">
+          <article class="question-card feature">
+            <div class="number">Q-2847 <span>精选</span></div><p class="tag">社会科学 / 心理学</p>
+            <h3>短视频使用究竟如何影响大学生的睡眠质量？</h3>
+            <p>希望找到变量之间更有解释力的关系，并获得问卷设计与文献依据的建议。</p>
+            <footer><span class="deadline">还剩 4 天</span><b>120 知点</b><span>12 个回应</span></footer>
+          </article>
+          <article class="question-card">
+            <div class="number">Q-2842</div><p class="tag engineering">工学 / 数据分析</p>
+            <h3>如何从传感器时序数据中识别异常的充电行为？</h3>
+            <p>已有 6 个月数据，正在比较 Isolation Forest 与 LSTM 的适用性。</p>
+            <footer><span class="deadline">还剩 2 天</span><b>80 知点</b><span>7 个回应</span></footer>
+          </article>
+          <article class="question-card">
+            <div class="number">Q-2839</div><p class="tag arts">艺术与设计 / 视觉传达</p>
+            <h3>地方戏曲元素如何避免成为视觉设计中的符号堆砌？</h3>
+            <p>毕业设计前期，需要案例分析框架和可参考的本土化路径。</p>
+            <footer><span class="deadline">还剩 6 天</span><b>60 知点</b><span>9 个回应</span></footer>
+          </article>
+        </div>
+        <div class="question-grid user-submissions" id="submissionList" aria-live="polite"></div>
+        <button class="outline-btn">查看全部精选问题 <span>→</span></button>
+      </section>
+
+      <section class="library-section" id="library">
+        <div class="library-copy"><p class="eyebrow"><span></span> RESEARCH DESK</p><h2>资料不是堆积，<br />而是<i>证据链</i>。</h2><p>为每个问题建立资料包：标出关键观点、记录页码和来源，让每一个结论都有迹可循。</p><a class="text-link" href="#">进入资料台 <span>→</span></a></div>
+        <div class="folder-stack">
+          <div class="folder back-folder">相关研究 <b>12</b></div><div class="folder mid-folder">研究方法 <b>06</b></div>
+          <div class="folder front-folder"><div class="folder-head"><span>资料包 / R-102</span><b>⋯</b></div><h3>数字媒介与<br />大学生睡眠</h3><div class="citation"><span>[01]</span><p>Social media use and sleep quality among university students<br /><i>Journal of Sleep Research, 2024</i></p></div><div class="citation"><span>[02]</span><p>Problematic short video use and mental health<br /><i>Computers in Human Behavior, 2023</i></p></div><div class="folder-foot">已标注 8 条相关证据 <b>↗</b></div></div>
+        </div>
+      </section>
+
+      <section class="content-section forum" id="forum">
+        <div class="section-heading"><div><p class="eyebrow"><span></span> CURATED FORUM</p><h2>本周值得参与的讨论</h2></div><a class="text-link" href="#">所有话题 <span>→</span></a></div>
+        <div class="forum-list">
+          <article><span class="forum-index">01</span><div><p>研究方法 · 46 人参与</p><h3>定量研究中，“显著”之外我们还应该报告什么？</h3></div><span class="forum-arrow">↗</span></article>
+          <article><span class="forum-index">02</span><div><p>学术写作 · 29 人参与</p><h3>怎样建立自己的文献阅读与批注系统？</h3></div><span class="forum-arrow">↗</span></article>
+          <article><span class="forum-index">03</span><div><p>跨学科协作 · 18 人参与</p><h3>当工程问题需要人文视角：一次真正的跨学科合作从何开始？</h3></div><span class="forum-arrow">↗</span></article>
+        </div>
+      </section>
+    </main>
+
+    <footer id="cases"><div class="brand"><span class="brand-mark">知</span><span>知途</span></div><p>认真提问，共同抵达。</p><span>© 2026 ZHITU CAMPUS</span></footer>
+    <div class="theme-menu" id="themeMenu" hidden><p>选择阅读环境</p><button data-theme="study"><span></span>研究室 <i>默认</i></button><button data-theme="night"><span></span>深夜图书馆</button><button data-theme="workshop"><span></span>创作工坊</button></div>
+    <dialog id="askDialog"><button class="close-dialog" aria-label="关闭">×</button><p class="eyebrow"><span></span> NEW QUESTION</p><h2>从一个好问题开始</h2><label>问题标题<input placeholder="例如：如何设计一份可靠的研究问卷？" /></label><label>你希望得到什么帮助？<textarea placeholder="写下背景、已经尝试过的方向，以及具体卡点。"></textarea></label><button class="primary-btn" id="submitQuestion">提交审核 <b>↗</b></button></dialog>
+    <dialog id="stuckDialog"><button class="close-dialog" aria-label="关闭">×</button><p class="eyebrow"><span></span> STUCK DESK / 投稿</p><h2>你卡在哪一步？</h2><p class="dialog-intro">不需要包装得完美。告诉大家你试过什么、真正卡住的地方，以及需要什么线索。</p><label>用一句话说说现场<input placeholder="例如：选题改了五次，还是不知道如何缩小" /></label><label>你最需要的帮助<textarea placeholder="资料方向、研究方法、代码、项目拆解……"></textarea></label><button class="primary-btn" id="submitStuck">投递给编辑部 <b>↗</b></button></dialog>
+    <script src="app.js"></script>
+  </body>
+</html>
