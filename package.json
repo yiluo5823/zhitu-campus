@@ -2,9 +2,16 @@
   "name": "zhitu-campus",
   "private": true,
   "type": "module",
+  "scripts": {
+    "dev": "wrangler pages dev .",
+    "build": "node scripts/build.mjs",
+    "check": "node --check app.js && node --check netlify/functions/api.mjs && node --check functions/api.js"
+  },
   "dependencies": {
     "@netlify/blobs": "^9.1.0",
-    "@netlify/identity": "^1.2.0",
-    "openai": "^6.47.0"
+    "@netlify/identity": "^1.2.0"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
   }
 }

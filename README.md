@@ -2,114 +2,126 @@
 
 知途面向高校学生，把“免费自助求解 → 专家悬赏 → 回答验收 → 知识资产沉淀”做成一条完整链路。用户可以上传题目、论文、数据或代码附件，先用免费模型梳理问题；仍未解决时，一键保留对话上下文并升级为付费悬赏。
 
-线上演示：https://hilarious-nougat-97963d.netlify.app/
+## 当前技术架构
 
-## 本次核心升级
+- 页面与自动发布：Cloudflare Pages
+- 服务端接口：Cloudflare Pages Functions
+- 注册与登录：Supabase Auth
+- 业务数据：Supabase PostgreSQL
+- 私有附件：Supabase Storage
+- 默认免费模型：Puter.js
+- 用户自带模型：OpenAI、DeepSeek、OpenAI-compatible API
+- 代码托管：GitHub
 
-### 1. 自助求解升级为专家悬赏
+推送 GitHub 主分支后，Cloudflare Pages 会自动构建并更新同一个 `*.pages.dev` 链接。
+
+## 核心功能
+
+### 自助求解升级为专家悬赏
 
 - 知识库支持连续追问和重新开启话题。
-- 用户可把完整对话、问题标题和已获得的思路一键带入悬赏发布页。
-- 悬赏详情会明确标记“来自知识库升级”，回答者可查看前置探索，避免重复劳动。
+- 用户可把完整对话、问题标题和已获得的思路带入悬赏发布页。
+- 系统根据问题长度、附件、时限、技术复杂度和前置探索给出透明估价区间。
+- 悬赏金额可在 10–1000 知点之间连续调整。
 
-### 2. 优质回答沉淀为知识资产
+### 付费回答与议价
 
-- 提问者解锁回答后，可填写准确度评分和验收意见。
-- 被验收的回答自动生成“已验收解决方案”，进入知识库卡片流。
-- 其他用户可付费解锁；收入的 80% 持续计入原回答者的知识版税。
-- 个人中心显示累计知识版税和已沉淀资产数。
+- 回答者提交公开摘要、完整回答、证据说明和附件。
+- 回答解锁价可在 0–500 知点之间连续调整。
+- 提问者可以还价，回答者可以接受或拒绝。
+- 完整回答与私有附件由服务端按身份和解锁记录裁剪。
 
-### 3. 证据等级与多维可信度
+### 证据评分与知识资产
 
-回答不再只展示笼统评分，而是拆分为：
+- 回答展示完整度、来源质量、可复现性和实际准确度。
+- 提问者解锁后可填写准确度与验收意见。
+- 被验收回答自动进入“已验收解决方案”。
+- 其他用户再次解锁时，80% 收入持续计入原回答者知识版税。
 
-- 完整度：步骤、边界条件与交付物是否齐全。
-- 来源质量：论文、教材、官方文档或可核验数据的质量。
-- 可复现性：他人能否按步骤得到相同结果。
-- 实际准确度：由提问者解锁并验收后给出。
+### 免费模型与用户自带 API
 
-回答者提交时需选择证据类型，并可补充 DOI、文献、数据集、实验环境或复现说明。
+- 默认使用 Puter.js 的免费模型路径，默认模型为 `gpt-5-nano`。
+- Puter 暂时不可用时，回退到站内结构化分析。
+- 模型中心支持 OpenAI、DeepSeek 和自定义 OpenAI 兼容 HTTPS 接口。
+- 用户 API Key 只保存在当前浏览器会话中，不写入 Supabase。
+- 服务端拒绝 HTTP、本机地址和内网地址，降低自定义模型入口被滥用的风险。
 
-### 4. 智能估价与连续议价
+## Supabase 初始化
 
-- 根据问题长度、附件数量、紧急程度、技术关键词和前置探索生成透明估价区间。
-- 系统给出最低价、建议价、最高价和估价理由。
-- 悬赏金额仍可在 10–1000 知点之间连续调整，不强制固定档位。
-- 回答可设置 0–500 知点解锁价，双方可以提出、接受或拒绝议价。
+1. 在 Supabase 创建一个 Free 项目。
+2. 打开 **SQL Editor**。
+3. 执行 [`supabase/schema.sql`](supabase/schema.sql)。
+4. 在 **Authentication → URL Configuration** 中填写 Cloudflare Pages 正式地址。
+5. 在 **Project Settings → API** 中获取：
 
-### 5. 免费模型与用户自带 API
+   - Project URL
+   - anon / publishable key
+   - service_role / secret key
 
-- 默认模型使用 Puter.js 提供的免费调用路径，当前默认选择 `gpt-5-nano`；开发者不需要在站点中保存统一密钥。
-- 免费模型不可用时，会回退到站内的结构化本地分析，保证入口仍能给出可继续操作的结果。
-- 模型中心支持 OpenAI、DeepSeek 和任意 OpenAI 兼容接口。
-- 用户填写的 API Key 只保存在当前浏览器会话的 `sessionStorage` 中，发送请求时临时传给 Netlify Function，不写入 Netlify Blobs。
-- 自带 API 的调用费用和数据规则由用户所选模型服务商决定。
+`service_role` 只允许配置在 Cloudflare 服务端环境变量中，绝对不能写入前端或提交 GitHub。
 
-> Puter 的免费模式采用 user-pays 机制，首次调用时可能要求用户登录 Puter 或确认授权。
+## Cloudflare Pages 配置
 
-## 其他功能
+在 Cloudflare Dashboard 创建 Pages 项目并连接 GitHub 仓库：
 
-- 问题悬赏：学科分类、多附件上传、连续金额和问题状态。
-- 付费回答：公开摘要、完整回答、附件交付、解锁与议价。
-- 精选论坛：行业新闻、科研工具和校园讨论；普通用户内容先审核后公开。
-- 回答榜：按学科筛选，展示认证、获赏和可信度战绩。
-- 权威档案：教育背景、认证状态、提问记录、回答记录、验收记录和版税。
-- 像素 UI：支持主色、颗粒、密度和发光强度个性化调整，适配 PC 与手机端。
+- Production branch：`main`
+- Build command：留空
+- Build output directory：`.`
 
-## 技术结构
+然后配置环境变量：
 
-- 前端：原生 HTML、CSS、JavaScript
-- 身份认证：Netlify Identity
-- 服务端：Netlify Functions
-- 数据和附件：Netlify Blobs
-- 默认免费模型：Puter.js
-- 用户自带模型：OpenAI、DeepSeek、OpenAI-compatible Chat Completions API
-- 可选站点模型：OpenAI Responses API / Netlify AI Gateway
-- 托管：GitHub + Netlify 自动部署
+| 变量 | 用途 | 是否加密 |
+|---|---|---|
+| `SUPABASE_URL` | Supabase Project URL | 否 |
+| `SUPABASE_ANON_KEY` | 浏览器认证公开密钥 | 否 |
+| `SUPABASE_SERVICE_ROLE_KEY` | 服务端数据库与附件权限 | 是 |
+| `SUPABASE_STORAGE_BUCKET` | 附件桶，默认 `attachments` | 否 |
+| `OPENAI_API_KEY` | 可选站点托管模型 | 是 |
+| `OPENAI_MODEL` | 可选，默认 `gpt-5-mini` | 否 |
+| `OPENAI_BASE_URL` | 可选，默认 OpenAI 官方接口 | 否 |
 
-主要文件：
-
-- `index.html`：页面结构、对话框和主要入口。
-- `styles.css`：像素风基础样式。
-- `modules-v2.css`：知识库、知识资产、证据评分、论坛、排行榜和议价模块样式。
-- `app.js`：浏览器端状态、Identity、模型选择、知识对话和业务交互。
-- `netlify/functions/api.mjs`：问题、回答、验收、知识资产、版税、议价、附件和模型接口。
+Functions 会通过 `/api` 提供业务接口，通过 `/api/config` 向前端提供 Supabase 公共配置。
 
 ## 本地运行
 
+安装依赖：
+
 ```bash
 pnpm install
-netlify dev
 ```
 
-必须通过 `netlify dev` 启动，才能完整使用 Identity、Blobs、Functions 和 AI Gateway 等 Netlify 能力。
+配置本地 Cloudflare 环境变量后运行：
 
-## Netlify 配置
+```bash
+pnpm exec wrangler pages dev .
+```
 
-1. 开启 Netlify Identity，选择开放注册或邀请注册。
-2. 如要求邮箱验证，用户必须点击确认邮件后才能登录。
-3. 给运营账号添加 `admin` 或 `moderator` 角色。
-4. 保持 GitHub `main` 分支与 Netlify Production deploy 连接。
-5. 可选配置 `OPENAI_API_KEY` 或启用 Netlify AI Gateway，作为站点托管模型能力。
-6. 可选变量 `OPENAI_MODEL` 覆盖站点托管模型，未设置时使用 `gpt-5-mini`。
+不要把真实密钥提交到仓库。Cloudflare 本地密钥应放在 `.dev.vars`，该文件已被忽略。
 
-## 安全、支付与内容边界
+## 主要文件
+
+- `index.html`：页面结构、弹窗和交互入口。
+- `styles.css`：像素风基础样式。
+- `modules-v2.css`：知识库、知识资产、证据评分、论坛、排行榜和议价样式。
+- `app.js`：Supabase 会话、模型选择、知识对话和业务交互。
+- `functions/api.js`：Cloudflare Pages API 入口。
+- `functions/api/config.js`：前端可读取的 Supabase 公共配置。
+- `netlify/functions/api.mjs`：共享业务内核；文件路径暂时保留以兼容旧版本。
+- `supabase/schema.sql`：数据库表、RLS 和私有附件桶初始化脚本。
+- `wrangler.toml`：Cloudflare Pages 本地与部署配置。
+
+## 安全与产品边界
 
 - 当前“知点”是站内演示账本，不等同于真实货币。
-- 接入人民币支付前，需要补充支付渠道、托管、退款、发票、未成年人保护和平台服务协议。
-- 前端隐藏不是权限控制；完整回答和知识资产由服务端按作者、解锁记录和管理员角色裁剪。
+- 接入人民币支付前，需要补充支付托管、退款、发票、未成年人保护和平台协议。
+- 前端隐藏不是权限控制；完整回答和附件由服务端按作者、购买记录和管理员角色判断。
+- Supabase `service_role` 密钥只存在 Cloudflare 服务端。
 - 模型回答可能出错，论文引用、医疗、法律和财务内容必须核验原始来源。
-- 普通用户论坛内容默认进入审核队列，避免垃圾信息直接公开。
-- 生产环境如需更强 BYOK 安全性，建议进一步采用服务商 OAuth、短期令牌或浏览器直连方案，避免长期密钥进入任何中间服务。
+- 普通用户论坛内容默认进入审核队列。
 
-## 发布流程
+## 免费额度注意事项
 
-推送 GitHub `main` 分支后，Netlify 会自动构建并更新线上演示链接。部署后重点检查：
-
-- Identity 注册、邮箱确认和登录。
-- 免费模型首次授权、连续追问和切换新问题。
-- OpenAI、DeepSeek 与自定义兼容模型配置。
-- 知识对话升级悬赏及智能估价。
-- 回答附件、证据评分、议价、解锁、验收和知识资产生成。
-- 知识资产二次解锁及回答者版税累计。
-- PC 与移动端导航、卡片堆叠和弹窗布局。
+- Cloudflare Pages Free 当前支持每月 500 次构建；Pages Functions 使用 Workers Free 配额。
+- Supabase Free 当前包括 500MB 数据库、1GB 文件存储和 50,000 月活用户。
+- Supabase 免费项目长时间无访问可能暂停；恢复后数据仍保留。
+- 达到免费额度时服务会暂停或限流，不会由本项目自动产生不受控账单。

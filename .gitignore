@@ -4,3 +4,7 @@ node_modules/
 *.zip
 *.msi
 *.log
+.dev.vars
+.wrangler/
+dist/
+supabase/.temp/

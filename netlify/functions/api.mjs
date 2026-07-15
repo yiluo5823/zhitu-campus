@@ -1,12 +1,48 @@
-import { getStore } from "@netlify/blobs";
-import { getUser } from "@netlify/identity";
-import OpenAI from "openai";
-
 const stateKey = "zhitu-paid-qa-v1";
-const db = () => getStore({ name: "zhitu-data", consistency: "strong" });
 const blank = () => ({ questions: [], answers: [], profiles: {}, unlocks: [], files: {}, posts: [], forumReplies: [], offers: [], assets: [], assetUnlocks: [], communityFund: 0 });
-const read = async () => ({ ...blank(), ...((await db().get(stateKey, { type: "json", consistency: "strong" })) || {}) });
-const save = (state) => db().setJSON(stateKey, state);
+const supabaseHeaders = (env, extra = {}) => ({ apikey: env.SUPABASE_SERVICE_ROLE_KEY, authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`, ...extra });
+const makeStore = async (env = {}) => {
+  if (env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY) {
+    const base = env.SUPABASE_URL.replace(/\/$/, ""), bucket = env.SUPABASE_STORAGE_BUCKET || "attachments";
+    return {
+      async get(key, options = {}) {
+        if (key === stateKey) {
+          const response = await fetch(`${base}/rest/v1/zhitu_state?id=eq.${encodeURIComponent(key)}&select=data&limit=1`, { headers: supabaseHeaders(env) });
+          if (!response.ok) throw Error(`Supabase state read failed: ${response.status}`);
+          return (await response.json())[0]?.data || null;
+        }
+        const response = await fetch(`${base}/storage/v1/object/${bucket}/${key.split("/").map(encodeURIComponent).join("/")}`, { headers: supabaseHeaders(env) });
+        if (response.status === 404) return null;
+        if (!response.ok) throw Error(`Supabase file read failed: ${response.status}`);
+        const buffer = await response.arrayBuffer();
+        return options.type === "arrayBuffer" ? buffer : buffer;
+      },
+      async setJSON(key, data) {
+        const response = await fetch(`${base}/rest/v1/zhitu_state`, { method: "POST", headers: supabaseHeaders(env, { "content-type": "application/json", prefer: "resolution=merge-duplicates" }), body: JSON.stringify([{ id: key, data, updated_at: new Date().toISOString() }]) });
+        if (!response.ok) throw Error(`Supabase state write failed: ${response.status}`);
+      },
+      async set(key, bytes, options = {}) {
+        const response = await fetch(`${base}/storage/v1/object/${bucket}/${key.split("/").map(encodeURIComponent).join("/")}`, { method: "POST", headers: supabaseHeaders(env, { "content-type": options.metadata?.type || "application/octet-stream", "x-upsert": "true" }), body: bytes });
+        if (!response.ok) throw Error(`Supabase file upload failed: ${response.status}`);
+      }
+    };
+  }
+  const { getStore } = await import("@netlify/blobs");
+  return getStore({ name: "zhitu-data", consistency: "strong" });
+};
+const requestUser = async (request, env = {}) => {
+  if (env.SUPABASE_URL && env.SUPABASE_ANON_KEY) {
+    const authorization = request.headers.get("authorization"); if (!authorization?.startsWith("Bearer ")) return null;
+    const response = await fetch(`${env.SUPABASE_URL.replace(/\/$/, "")}/auth/v1/user`, { headers: { apikey: env.SUPABASE_ANON_KEY, authorization } });
+    if (!response.ok) return null;
+    const value = await response.json();
+    return { id: value.id, email: value.email, userMetadata: value.user_metadata || {}, user_metadata: value.user_metadata || {}, roles: value.app_metadata?.roles || [] };
+  }
+  const { getUser } = await import("@netlify/identity");
+  return getUser().catch(() => null);
+};
+const read = async (store) => ({ ...blank(), ...((await store.get(stateKey, { type: "json", consistency: "strong" })) || {}) });
+const save = (store, state) => store.setJSON(stateKey, state);
 const out = (body, status = 200) => Response.json(body, { status, headers: { "cache-control": "no-store" } });
 const clean = (value, length) => String(value || "").trim().replace(/[<>]/g, "").slice(0, length);
 const safeModelBaseURL = (value) => {
@@ -15,6 +51,12 @@ const safeModelBaseURL = (value) => {
     const privateHost = host === "localhost" || host === "::1" || host === "0.0.0.0" || host.endsWith(".local") || host.startsWith("127.") || host.startsWith("10.") || host.startsWith("192.168.") || /^172\.(1[6-9]|2\d|3[01])\./.test(host) || host === "169.254.169.254";
     return url.protocol === "https:" && !privateHost ? url.toString().replace(/\/$/, "") : "";
   } catch { return ""; }
+};
+const callCompatibleModel = async ({ baseURL, apiKey, model, messages }) => {
+  const response = await fetch(`${baseURL.replace(/\/$/, "")}/chat/completions`, { method: "POST", headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" }, body: JSON.stringify({ model, messages, max_tokens: 1200 }) });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw Error(data.error?.message || `HTTP ${response.status}`);
+  return data.choices?.[0]?.message?.content || "模型没有返回文本。";
 };
 const canReview = (user) => Boolean(user?.roles?.some((role) => ["admin", "moderator"].includes(role)));
 const seed = [
@@ -49,13 +91,13 @@ const localKnowledgeAnswer = (query) => {
   return `针对“${text.slice(0, 80)}”，建议从以下路径推进：\n\n1. 问题判断\n${focus}\n\n2. 立即行动\n列出你已经拥有的资料、尚缺的证据和最终要交付的结果；每项只保留最关键的一条。\n\n3. 核验标准\n检查结论是否能被来源、数据或可复现步骤支持。不能核验的内容暂时只作为假设。\n\n4. 下一步\n先完成一个最小版本，再根据失败点补充资料。如果仍无法推进，可把具体卡点转成悬赏问题。`;
 };
 
-export default async (request) => {
-  const url = new URL(request.url); const user = await getUser().catch(() => null); const state = await read(); const me = ensureProfile(state, user);
-  if (user) await save(state);
+export default async (request, env = {}) => {
+  const store = await makeStore(env); const url = new URL(request.url); const user = await requestUser(request, env); const state = await read(store); const me = ensureProfile(state, user);
+  if (user) await save(store, state);
   if (request.method === "GET" && url.searchParams.get("file")) {
     if (!user) return out({ error: "请先登录后下载附件。" }, 401);
     const file = state.files[url.searchParams.get("file")]; if (!allowFile(state, file, user.id)) return out({ error: "请先解锁回答后查看该附件。" }, 403);
-    const data = await db().get(file.key, { type: "arrayBuffer" }); if (!data) return out({ error: "附件不存在。" }, 404);
+    const data = await store.get(file.key, { type: "arrayBuffer" }); if (!data) return out({ error: "附件不存在。" }, 404);
     return new Response(data, { headers: { "content-type": file.type || "application/octet-stream", "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(file.name)}` } });
   }
   if (request.method === "GET") {
@@ -78,13 +120,14 @@ export default async (request) => {
     if (body.forceLocal) return out({ answer: localKnowledgeAnswer(query), responseId: null, mode: "local" });
     try {
       const history = Array.isArray(body.history) ? body.history.slice(-8).map((item) => ({ role: item.role === "assistant" ? "assistant" : "user", content: clean(item.text, 1800) })).filter((item) => item.content) : [];
-      const openai = new OpenAI(); const requestBody = { model: process.env.OPENAI_MODEL || "gpt-5-mini", instructions: "你是知途问题解决助手，服务高校学生。请结合对话上下文，针对用户的具体问题给出不同且可执行的中文回答。先判断问题类型和缺失信息，再给出分步骤方案、可核验标准和下一步。不得虚构文献、网址、数据或权威结论；需要来源时明确建议用户核验。回答控制在900字内。", input: [...history, { role: "user", content: query }], max_output_tokens: 1200 };
-      const response = await openai.responses.create(requestBody); return out({ answer: response.output_text, responseId: response.id, mode: "ai" });
+      if (!env.OPENAI_API_KEY) throw Error("No hosted model configured");
+      const answer = await callCompatibleModel({ baseURL: env.OPENAI_BASE_URL || "https://api.openai.com/v1", apiKey: env.OPENAI_API_KEY, model: env.OPENAI_MODEL || "gpt-5-mini", messages: [{ role: "system", content: "你是知途问题解决助手，服务高校学生。结合上下文给出可执行步骤、核验标准和下一步，不虚构文献、网址、数据或权威结论，900字内。" }, ...history, { role: "user", content: query }] });
+      return out({ answer, responseId: null, mode: "ai" });
     } catch (error) { console.error("AI Gateway fallback", error?.message); return out({ answer: localKnowledgeAnswer(query), responseId: null, mode: "local" }); }
   }
   if (body.action === "askKnowledgeByok") {
     const query = clean(body.query, 1400), apiKey = clean(body.apiKey, 500), baseURL = safeModelBaseURL(clean(body.baseURL, 500)), model = clean(body.model, 160); if (query.length < 4 || !apiKey || !baseURL || !model) return out({ error: "请填写有效的 HTTPS 模型地址、模型名称和 API Key。" }, 400);
-    try { const client = new OpenAI({ apiKey, baseURL }); const history = Array.isArray(body.history) ? body.history.slice(-8).map((item) => ({ role: item.role === "assistant" ? "assistant" : "user", content: clean(item.text, 1800) })) : []; const result = await client.chat.completions.create({ model, messages: [{ role: "system", content: "你是知途问题解决助手。结合上下文给出可执行步骤、核验标准和下一步，不虚构来源，900字内。" }, ...history, { role: "user", content: query }], max_tokens: 1200 }); return out({ answer: result.choices?.[0]?.message?.content || "模型没有返回文本。", mode: "byok" }); } catch (error) { return out({ error: `模型接口调用失败：${clean(error?.message, 240)}` }, 502); }
+    try { const history = Array.isArray(body.history) ? body.history.slice(-8).map((item) => ({ role: item.role === "assistant" ? "assistant" : "user", content: clean(item.text, 1800) })) : []; const answer = await callCompatibleModel({ baseURL, apiKey, model, messages: [{ role: "system", content: "你是知途问题解决助手。结合上下文给出可执行步骤、核验标准和下一步，不虚构来源，900字内。" }, ...history, { role: "user", content: query }] }); return out({ answer, mode: "byok" }); } catch (error) { return out({ error: `模型接口调用失败：${clean(error?.message, 240)}` }, 502); }
   }
   const noUser = needed(user); if (noUser) return noUser;
   if (body.action === "uploadFile") {
@@ -92,8 +135,8 @@ export default async (request) => {
     if (!name || !data.includes(",")) return out({ error: "请选择有效附件。" }, 400);
     const bytes = Uint8Array.from(atob(data.split(",")[1]), (c) => c.charCodeAt(0));
     if (bytes.byteLength > 4 * 1024 * 1024) return out({ error: "单个附件请控制在 4MB 以内。" }, 413);
-    const id = crypto.randomUUID(); const key = `uploads/${id}`; await db().set(key, bytes, { metadata: { name, type, ownerId: user.id } });
-    state.files[id] = { id, key, name, type, size: bytes.byteLength, ownerId: user.id, visibility: "draft" }; await save(state); return out({ file: { id, name, type, size: bytes.byteLength } }, 201);
+    const id = crypto.randomUUID(); const key = `uploads/${id}`; await store.set(key, bytes, { metadata: { name, type, ownerId: user.id } });
+    state.files[id] = { id, key, name, type, size: bytes.byteLength, ownerId: user.id, visibility: "draft" }; await save(store, state); return out({ file: { id, name, type, size: bytes.byteLength } }, 201);
   }
   if (body.action === "createQuestion") {
     const title = clean(body.title, 100), detail = clean(body.detail, 1600), category = clean(body.category, 40) || "综合 / 学术问题"; const bounty = Number(body.bounty);
@@ -102,19 +145,19 @@ export default async (request) => {
     if (me.credits < bounty) return out({ error: "知点余额不足，暂时无法发布该档位。" }, 400);
     const attachments = (body.attachments || []).map((item) => state.files[item.id]).filter((file) => file && file.ownerId === user.id).map((file) => { file.visibility = "question"; return { id: file.id, name: file.name, type: file.type, size: file.size }; });
     const tier = bounty < 50 ? "轻量" : bounty < 120 ? "标准" : bounty < 300 ? "加急" : "深度"; const question = { id: crypto.randomUUID(), title, detail, category, tier, bounty, authorId: user.id, authorName: me.name, answerCount: 0, attachments, origin: body.origin === "knowledge" ? "knowledge" : "direct", knowledgeContext: clean(body.knowledgeContext, 2600), pricingEstimate: body.pricingEstimate || null, status: "open", createdAt: new Date().toISOString() };
-    me.credits -= bounty; me.questionCount += 1; state.questions.unshift(question); await save(state); return out({ question }, 201);
+    me.credits -= bounty; me.questionCount += 1; state.questions.unshift(question); await save(store, state); return out({ question }, 201);
   }
   if (body.action === "createForumPost") {
     const title = clean(body.title, 100), content = clean(body.content, 1800), category = clean(body.category, 30) || "校园讨论";
     if (title.length < 8 || content.length < 30) return out({ error: "请把话题与观点写得更具体一些。" }, 400);
     const post = { id: crypto.randomUUID(), title, summary: content.slice(0, 120), content, category, authorId: user.id, authorName: me.name, official: false, replyCount: 0, status: canReview(user) ? "published" : "pending", createdAt: new Date().toISOString() };
-    state.posts.unshift(post); await save(state); return out({ post }, 201);
+    state.posts.unshift(post); await save(store, state); return out({ post }, 201);
   }
   if (body.action === "createForumReply") {
     const post = [...seedPosts, ...state.posts].find((item) => item.id === String(body.postId)), content = clean(body.content, 1000);
     if (!post) return out({ error: "话题不存在。" }, 404); if (content.length < 8) return out({ error: "回复需要包含一个完整观点。" }, 400);
     const reply = { id: crypto.randomUUID(), postId: post.id, content, authorId: user.id, authorName: me.name, status: canReview(user) ? "published" : "pending", createdAt: new Date().toISOString() };
-    state.forumReplies.push(reply); if (!post.id.startsWith("news-")) post.replyCount = (post.replyCount || 0) + 1; await save(state); return out({ reply }, 201);
+    state.forumReplies.push(reply); if (!post.id.startsWith("news-")) post.replyCount = (post.replyCount || 0) + 1; await save(store, state); return out({ reply }, 201);
   }
   if (body.action === "createAnswer") {
     const question = [...seed, ...state.questions].find((item) => item.id === String(body.questionId)); const preview = clean(body.preview, 260), full = clean(body.full, 5000), price = Number(body.price);
@@ -122,31 +165,31 @@ export default async (request) => {
     if (preview.length < 12 || full.length < 80) return out({ error: "请提供足够具体的摘要与完整回答。" }, 400); if (!Number.isInteger(price) || price < 0 || price > 500) return out({ error: "回答解锁价应在 0–500 知点之间。" }, 400);
     const attachments = (body.attachments || []).map((item) => state.files[item.id]).filter((file) => file && file.ownerId === user.id).map((file) => { file.visibility = "answer"; return { id: file.id, name: file.name, type: file.type, size: file.size }; });
     const baseScores = quality(full, attachments), evidenceType = clean(body.evidenceType, 40) || "经验判断", sourceNote = clean(body.sourceNote, 1000); const evidence = { type: evidenceType, sourceNote, sourceQuality: Math.min(95, 40 + (sourceNote.length > 80 ? 25 : 0) + (attachments.length ? 20 : 0) + (/文献|数据|代码|实验/.test(evidenceType) ? 10 : 0)), reproducibility: Math.min(96, 45 + (full.length > 300 ? 20 : 0) + (attachments.length ? 15 : 0) + (/步骤|首先|然后|最后|1\.|2\./.test(full) ? 16 : 0)) }; const answer = { id: crypto.randomUUID(), questionId: question.id, questionAuthorId: question.authorId, authorId: user.id, authorName: me.name, author: publicProfile(me), preview, full, price, attachments, completeness: baseScores.completeness, accuracy: null, evidence, accepted: false, status: "published", createdAt: new Date().toISOString() };
-    state.answers.unshift(answer); if (!question.id.startsWith("seed")) question.answerCount = (question.answerCount || 0) + 1; me.answerCount += 1; await save(state); return out({ answer }, 201);
+    state.answers.unshift(answer); if (!question.id.startsWith("seed")) question.answerCount = (question.answerCount || 0) + 1; me.answerCount += 1; await save(store, state); return out({ answer }, 201);
   }
   if (body.action === "unlockAnswer") {
     const answer = state.answers.find((item) => item.id === String(body.answerId)); if (!answer) return out({ error: "回答不存在。" }, 404); if (answer.questionAuthorId !== user.id && !ownsUnlock(state, user.id, answer.id)) return out({ error: "只有提问者可以解锁此付费回答。" }, 403);
-    if (!ownsUnlock(state, user.id, answer.id) && answer.price > 0) { if (me.credits < answer.price) return out({ error: "知点余额不足，无法完成解锁。" }, 400); me.credits -= answer.price; const author = state.profiles[answer.authorId]; if (author) { author.credits += answer.price; author.answerWins += 1; } state.unlocks.push({ userId: user.id, answerId: answer.id, paid: answer.price, createdAt: new Date().toISOString() }); await save(state); }
+    if (!ownsUnlock(state, user.id, answer.id) && answer.price > 0) { if (me.credits < answer.price) return out({ error: "知点余额不足，无法完成解锁。" }, 400); me.credits -= answer.price; const author = state.profiles[answer.authorId]; if (author) { author.credits += answer.price; author.answerWins += 1; } state.unlocks.push({ userId: user.id, answerId: answer.id, paid: answer.price, createdAt: new Date().toISOString() }); await save(store, state); }
     return out({ answer: { ...answer, unlocked: true }, credits: me.credits });
   }
   if (body.action === "proposeOffer") {
     const answer = state.answers.find((item) => item.id === String(body.answerId)), amount = Number(body.amount); if (!answer) return out({ error: "回答不存在。" }, 404); if (answer.questionAuthorId !== user.id) return out({ error: "只有提问者可以发起议价。" }, 403); if (!Number.isInteger(amount) || amount < 0 || amount > 500) return out({ error: "议价金额应在 0–500 知点之间。" }, 400);
-    const offer = { id: crypto.randomUUID(), answerId: answer.id, buyerId: user.id, sellerId: answer.authorId, amount, status: "pending", createdAt: new Date().toISOString() }; state.offers.push(offer); await save(state); return out({ offer }, 201);
+    const offer = { id: crypto.randomUUID(), answerId: answer.id, buyerId: user.id, sellerId: answer.authorId, amount, status: "pending", createdAt: new Date().toISOString() }; state.offers.push(offer); await save(store, state); return out({ offer }, 201);
   }
   if (body.action === "respondOffer") {
-    const offer = state.offers.find((item) => item.id === String(body.offerId)), accept = Boolean(body.accept); if (!offer || offer.sellerId !== user.id) return out({ error: "没有处理该议价的权限。" }, 403); offer.status = accept ? "accepted" : "rejected"; offer.respondedAt = new Date().toISOString(); if (accept) { const answer = state.answers.find((item) => item.id === offer.answerId); if (answer) answer.price = offer.amount; } await save(state); return out({ offer });
+    const offer = state.offers.find((item) => item.id === String(body.offerId)), accept = Boolean(body.accept); if (!offer || offer.sellerId !== user.id) return out({ error: "没有处理该议价的权限。" }, 403); offer.status = accept ? "accepted" : "rejected"; offer.respondedAt = new Date().toISOString(); if (accept) { const answer = state.answers.find((item) => item.id === offer.answerId); if (answer) answer.price = offer.amount; } await save(store, state); return out({ offer });
   }
   if (body.action === "rateAndAcceptAnswer") {
     const answer = state.answers.find((item) => item.id === String(body.answerId)), rating = Number(body.accuracy), comment = clean(body.comment, 600); if (!answer || answer.questionAuthorId !== user.id) return out({ error: "只有提问者可以验收这个回答。" }, 403); if (!ownsUnlock(state, user.id, answer.id) && answer.price > 0) return out({ error: "请先解锁完整回答再验收。" }, 400); if (!Number.isInteger(rating) || rating < 1 || rating > 100) return out({ error: "准确度评分应在 1–100 之间。" }, 400);
-    answer.accuracy = rating; answer.reviewComment = comment; answer.accepted = true; const question = state.questions.find((item) => item.id === answer.questionId); if (question) question.status = "solved"; let asset = state.assets.find((item) => item.answerId === answer.id); if (!asset) { asset = { id: crypto.randomUUID(), answerId: answer.id, questionId: answer.questionId, title: question?.title || "已解决问题", summary: answer.preview, content: answer.full, category: question?.category || "综合", authorId: answer.authorId, authorName: answer.authorName, price: Math.min(50, Math.max(0, Math.round(answer.price * .25))), evidence: answer.evidence, accuracy: rating, unlockCount: 0, status: "published", createdAt: new Date().toISOString() }; state.assets.unshift(asset); } await save(state); return out({ answer, asset });
+    answer.accuracy = rating; answer.reviewComment = comment; answer.accepted = true; const question = state.questions.find((item) => item.id === answer.questionId); if (question) question.status = "solved"; let asset = state.assets.find((item) => item.answerId === answer.id); if (!asset) { asset = { id: crypto.randomUUID(), answerId: answer.id, questionId: answer.questionId, title: question?.title || "已解决问题", summary: answer.preview, content: answer.full, category: question?.category || "综合", authorId: answer.authorId, authorName: answer.authorName, price: Math.min(50, Math.max(0, Math.round(answer.price * .25))), evidence: answer.evidence, accuracy: rating, unlockCount: 0, status: "published", createdAt: new Date().toISOString() }; state.assets.unshift(asset); } await save(store, state); return out({ answer, asset });
   }
   if (body.action === "unlockKnowledgeAsset") {
-    const asset = state.assets.find((item) => item.id === String(body.assetId)); if (!asset) return out({ error: "知识资产不存在。" }, 404); if (!ownsAsset(state, user.id, asset.id) && asset.authorId !== user.id && asset.price > 0) { if (me.credits < asset.price) return out({ error: "知点余额不足。" }, 400); me.credits -= asset.price; const creator = state.profiles[asset.authorId], royalty = Math.floor(asset.price * .8); if (creator) { creator.credits += royalty; creator.royaltyEarned = (creator.royaltyEarned || 0) + royalty; } state.communityFund += asset.price - royalty; state.assetUnlocks.push({ userId: user.id, assetId: asset.id, paid: asset.price, royalty, createdAt: new Date().toISOString() }); asset.unlockCount += 1; await save(state); } return out({ asset: { ...asset, unlocked: true }, credits: me.credits });
+    const asset = state.assets.find((item) => item.id === String(body.assetId)); if (!asset) return out({ error: "知识资产不存在。" }, 404); if (!ownsAsset(state, user.id, asset.id) && asset.authorId !== user.id && asset.price > 0) { if (me.credits < asset.price) return out({ error: "知点余额不足。" }, 400); me.credits -= asset.price; const creator = state.profiles[asset.authorId], royalty = Math.floor(asset.price * .8); if (creator) { creator.credits += royalty; creator.royaltyEarned = (creator.royaltyEarned || 0) + royalty; } state.communityFund += asset.price - royalty; state.assetUnlocks.push({ userId: user.id, assetId: asset.id, paid: asset.price, royalty, createdAt: new Date().toISOString() }); asset.unlockCount += 1; await save(store, state); } return out({ asset: { ...asset, unlocked: true }, credits: me.credits });
   }
   if (body.action === "updateProfile") {
-    me.education = clean(body.education, 140) || me.education; await save(state); return out({ me: publicProfile(me) });
+    me.education = clean(body.education, 140) || me.education; await save(store, state); return out({ me: publicProfile(me) });
   }
   if (body.action === "myData") return out({ me: { ...publicProfile(me), royaltyEarned: me.royaltyEarned }, credits: me.credits, questions: state.questions.filter((item) => item.authorId === user.id), answers: state.answers.filter((item) => item.authorId === user.id), assets: state.assets.filter((item) => item.authorId === user.id), unlocks: state.unlocks.filter((item) => item.userId === user.id) });
-  if (body.action === "reviewProfile") { if (!canReview(user)) return out({ error: "需要管理员权限。" }, 403); const target = state.profiles[clean(body.userId, 100)]; if (!target) return out({ error: "用户不存在。" }, 404); target.verified = Boolean(body.verified); await save(state); return out({ profile: publicProfile(target) }); }
+  if (body.action === "reviewProfile") { if (!canReview(user)) return out({ error: "需要管理员权限。" }, 403); const target = state.profiles[clean(body.userId, 100)]; if (!target) return out({ error: "用户不存在。" }, 404); target.verified = Boolean(body.verified); await save(store, state); return out({ profile: publicProfile(target) }); }
   return out({ error: "未知操作" }, 400);
 };
