@@ -3,7 +3,7 @@ import { getUser } from "@netlify/identity";
 
 const stateKey = "zhitu-paid-qa-v1";
 const db = () => getStore({ name: "zhitu-data", consistency: "strong" });
-const blank = () => ({ questions: [], answers: [], profiles: {}, unlocks: [], files: {} });
+const blank = () => ({ questions: [], answers: [], profiles: {}, unlocks: [], files: {}, posts: [], forumReplies: [] });
 const read = async () => ({ ...blank(), ...((await db().get(stateKey, { type: "json", consistency: "strong" })) || {}) });
 const save = (state) => db().setJSON(stateKey, state);
 const out = (body, status = 200) => Response.json(body, { status, headers: { "cache-control": "no-store" } });
@@ -12,6 +12,11 @@ const canReview = (user) => Boolean(user?.roles?.some((role) => ["admin", "moder
 const seed = [
   { id: "seed-1", category: "社科 / 毕业论文", tier: "标准", bounty: 60, title: "如何把“短视频使用影响睡眠质量”缩成可检验的毕业论文选题？", detail: "我已有一批文献，但变量、样本和研究方法还没有确定。希望得到一条可执行的研究路径。", authorName: "匿名提问者", authorId: "seed", answerCount: 2, status: "open", createdAt: "2026-07-15T00:00:00.000Z", attachments: [] },
   { id: "seed-2", category: "工学 / 编程", tier: "加急", bounty: 120, title: "答辩前 72 小时，如何把 Python 数据清洗脚本收束为可展示方案？", detail: "数据表字段混乱，需要一条最小可行的清洗、可视化和展示路径。", authorName: "匿名提问者", authorId: "seed", answerCount: 1, status: "open", createdAt: "2026-07-14T00:00:00.000Z", attachments: [] }
+];
+const seedPosts = [
+  { id: "news-1", category: "行业新闻", title: "高校正在重新讨论：生成式 AI 如何进入课程与论文规范", summary: "从一刀切禁用转向声明使用范围、过程留痕与人工核验，新的学术规范正在形成。", content: "越来越多高校把重点从“是否使用 AI”转向“如何透明、可核验地使用 AI”。对学生而言，关键是保留检索、判断、修改和引用过程，并明确声明工具参与范围。", authorName: "知途编辑部", official: true, replyCount: 18, createdAt: "2026-07-15T01:00:00.000Z", status: "published" },
+  { id: "news-2", category: "科研工具", title: "文献检索开始从“找相似论文”转向“找能支撑当前判断的证据”", summary: "新一代研究工具更强调问题拆解、段落级证据与引用链，而不是给出一长串搜索结果。", content: "真正有用的检索，不是把关键词重复输入数据库，而是先判断问题需要定义、方法、数据还是反例，再针对证据类型展开。知途知识库也采用这一逻辑。", authorName: "知途编辑部", official: true, replyCount: 31, createdAt: "2026-07-14T03:00:00.000Z", status: "published" },
+  { id: "news-3", category: "校园讨论", title: "付费答疑的价值边界：买的是答案，还是更快抵达答案的路径？", summary: "高质量付费回答应当包含判断依据、可复用流程和风险边界，而不只是一个结论。", content: "当回答可以被验证、复用并帮助提问者掌握方法时，付费才具有长期价值。平台因此同时展示完整度、准确度、附件和回答者认证信息。", authorName: "知途编辑部", official: true, replyCount: 42, createdAt: "2026-07-13T04:00:00.000Z", status: "published" }
 ];
 const publicProfile = (profile) => profile && ({ id: profile.id, name: profile.name, education: profile.education || "未认证", verified: Boolean(profile.verified), answerWins: profile.answerWins || 0, questionCount: profile.questionCount || 0 });
 const ensureProfile = (state, user) => {
@@ -42,7 +47,9 @@ export default async (request) => {
   if (request.method === "GET") {
     const questions = [...seed, ...state.questions.filter((item) => item.status === "open" || item.authorId === user?.id)];
     const visibleAnswers = state.answers.filter((item) => item.status === "published").map((item) => ({ ...item, full: user && (item.authorId === user.id || item.questionAuthorId === user.id || item.price === 0 || ownsUnlock(state, user.id, item.id)) ? item.full : "", unlocked: Boolean(user && (item.authorId === user.id || item.questionAuthorId === user.id || item.price === 0 || ownsUnlock(state, user.id, item.id))) }));
-    return out({ questions, answers: visibleAnswers, me: me && publicProfile(me), credits: me?.credits || 0, reviewer: canReview(user) });
+    const posts = [...seedPosts, ...state.posts.filter((item) => item.status === "published" || item.authorId === user?.id)];
+    const forumReplies = state.forumReplies.filter((item) => item.status === "published" || item.authorId === user?.id);
+    return out({ questions, answers: visibleAnswers, posts, forumReplies, me: me && publicProfile(me), credits: me?.credits || 0, reviewer: canReview(user) });
   }
   if (request.method !== "POST") return out({ error: "Method not allowed" }, 405);
   const body = await request.json().catch(() => ({})); const noUser = needed(user); if (noUser) return noUser;
@@ -62,6 +69,18 @@ export default async (request) => {
     const attachments = (body.attachments || []).map((item) => state.files[item.id]).filter((file) => file && file.ownerId === user.id).map((file) => { file.visibility = "question"; return { id: file.id, name: file.name, type: file.type, size: file.size }; });
     const question = { id: crypto.randomUUID(), title, detail, category, tier: ({ 30: "轻量", 60: "标准", 120: "加急", 300: "深度" })[bounty], bounty, authorId: user.id, authorName: me.name, answerCount: 0, attachments, status: "open", createdAt: new Date().toISOString() };
     me.credits -= bounty; me.questionCount += 1; state.questions.unshift(question); await save(state); return out({ question }, 201);
+  }
+  if (body.action === "createForumPost") {
+    const title = clean(body.title, 100), content = clean(body.content, 1800), category = clean(body.category, 30) || "校园讨论";
+    if (title.length < 8 || content.length < 30) return out({ error: "请把话题与观点写得更具体一些。" }, 400);
+    const post = { id: crypto.randomUUID(), title, summary: content.slice(0, 120), content, category, authorId: user.id, authorName: me.name, official: false, replyCount: 0, status: canReview(user) ? "published" : "pending", createdAt: new Date().toISOString() };
+    state.posts.unshift(post); await save(state); return out({ post }, 201);
+  }
+  if (body.action === "createForumReply") {
+    const post = [...seedPosts, ...state.posts].find((item) => item.id === String(body.postId)), content = clean(body.content, 1000);
+    if (!post) return out({ error: "话题不存在。" }, 404); if (content.length < 8) return out({ error: "回复需要包含一个完整观点。" }, 400);
+    const reply = { id: crypto.randomUUID(), postId: post.id, content, authorId: user.id, authorName: me.name, status: canReview(user) ? "published" : "pending", createdAt: new Date().toISOString() };
+    state.forumReplies.push(reply); if (!post.id.startsWith("news-")) post.replyCount = (post.replyCount || 0) + 1; await save(state); return out({ reply }, 201);
   }
   if (body.action === "createAnswer") {
     const question = [...seed, ...state.questions].find((item) => item.id === String(body.questionId)); const preview = clean(body.preview, 260), full = clean(body.full, 5000), price = Number(body.price);
