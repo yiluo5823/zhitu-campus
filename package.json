@@ -4,6 +4,7 @@
   "type": "module",
   "dependencies": {
     "@netlify/blobs": "^9.1.0",
-    "@netlify/identity": "^1.2.0"
+    "@netlify/identity": "^1.2.0",
+    "openai": "^6.47.0"
   }
 }
