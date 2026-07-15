@@ -62,8 +62,8 @@ export default async (request) => {
   if (body.action === "askKnowledge") {
     const query = clean(body.query, 1400); if (query.length < 4) return out({ error: "请描述一个更具体的问题。" }, 400);
     try {
-      const openai = new OpenAI(); const requestBody = { model: process.env.OPENAI_MODEL || "gpt-5-mini", instructions: "你是知途问题解决助手，服务高校学生。请针对用户的具体问题给出不同且可执行的中文回答。先判断问题类型和缺失信息，再给出分步骤方案、可核验标准和下一步。不得虚构文献、网址、数据或权威结论；需要来源时明确建议用户核验。回答控制在900字内。", input: query, max_output_tokens: 1200 };
-      if (body.previousResponseId) requestBody.previous_response_id = clean(body.previousResponseId, 200);
+      const history = Array.isArray(body.history) ? body.history.slice(-8).map((item) => ({ role: item.role === "assistant" ? "assistant" : "user", content: clean(item.text, 1800) })).filter((item) => item.content) : [];
+      const openai = new OpenAI(); const requestBody = { model: process.env.OPENAI_MODEL || "gpt-5-mini", instructions: "你是知途问题解决助手，服务高校学生。请结合对话上下文，针对用户的具体问题给出不同且可执行的中文回答。先判断问题类型和缺失信息，再给出分步骤方案、可核验标准和下一步。不得虚构文献、网址、数据或权威结论；需要来源时明确建议用户核验。回答控制在900字内。", input: [...history, { role: "user", content: query }], max_output_tokens: 1200 };
       const response = await openai.responses.create(requestBody); return out({ answer: response.output_text, responseId: response.id, mode: "ai" });
     } catch (error) { console.error("AI Gateway fallback", error?.message); return out({ answer: localKnowledgeAnswer(query), responseId: null, mode: "local" }); }
   }
